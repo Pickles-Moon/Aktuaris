@@ -2,6 +2,7 @@
 an inefficient chrome homepage, made with LLM and boredoms, feel free to heat ur pc!
 
 my quick homepage link
+
 https://pickles-moon.github.io/Aktuaris/
 
 //reccomended bakground animation
