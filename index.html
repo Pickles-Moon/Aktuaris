@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>New tab</title>
+  <style>
+    :root {
+      --glass-bg-dark: rgba(20, 20, 20, 0.4);
+      --glass-border-dark: rgba(255, 255, 255, 0.15);
+      --text-dark: #ffffff;
+      --shadow-dark: rgba(0, 0, 0, 0.5);
+
+      --glass-bg-light: rgba(255, 255, 255, 0.4);
+      --glass-border-light: rgba(0, 0, 0, 0.15);
+      --text-light: #111111;
+      --shadow-light: rgba(0, 0, 0, 0.1);
+      
+      --global-opacity: 0.4;
+      --glass-blur: blur(12px);
+      --bg-fade-duration: 0.6s;
+      --bg-fade-density: 0.8;
+    }
+
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      overflow: hidden;
+      transition: color 0.5s, text-shadow 0.5s;
+      background: linear-gradient(180deg, #7ec6ff 0%, #a7dcff 45%, #d8efff 100%);
+      background-attachment: fixed;
+      color: #111;
+    }
+
+    .no-select {
+      user-select: none !important;
+      cursor: default !important;
+    }
+
+    #video-bg, #img-bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      object-fit: cover;
+      object-position: center center;
+      opacity: 0;
+      transition: opacity var(--bg-fade-duration) ease;
+    }
+    
+    #video-bg { z-index: -100; }
+    #img-bg { z-index: -101; display: none; }
+
+    body.theme-dark {
+      color: var(--text-dark);
+      --glass-border: var(--glass-border-dark);
+      --box-shadow-color: var(--shadow-dark);
+      --modal-bg: rgba(20, 20, 20, 0.7);
+      text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+    }
+    
+    body.theme-light {
+      color: var(--text-light);
+      --glass-border: var(--glass-border-light);
+      --box-shadow-color: var(--shadow-light);
+      --modal-bg: rgba(255, 255, 255, 0.7);
+      text-shadow: 0 1px 3px rgba(255,255,255,0.8);
+    }
+
+    .workspace {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 10;
+    }
+
+    #selection-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 5000;
+    }
+
+    #selection-box {
+      position: absolute;
+      display: none;
+      border: 1px solid rgba(0, 120, 255, 0.95);
+      background: rgba(0, 122, 255, 0.18);
+      border-radius: 4px;
+      box-shadow: 0 0 0 1px rgba(0, 120, 255, 0.15);
+      will-change: width, height, top, left;
+    }
+
+    /* Desktop Windows System Style */
+    .widget-window {
+      position: absolute;
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      box-shadow: 0 12px 32px var(--box-shadow-color);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
+      min-height: 0;
+      box-sizing: border-box;
+      transition: box-shadow 0.3s;
+
+      will-change: transform, backdrop-filter;
+      transform: translateZ(0);
+    }
+
+    .window-header {
+      padding: 8px 12px;
+      background: rgba(128, 128, 128, 0.1);
+      border-bottom: 1px solid var(--glass-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      user-select: none;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    body:not(.edit-mode) .widget-window.hide-title .window-header { display: none !important; }
+    .window-title { margin: 0; font-size: 0.9rem; font-weight: 600; letter-spacing: 0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .window-body { padding: 12px; flex-grow: 1; overflow: auto; display: flex; flex-direction: column; position: relative; min-width: 0; min-height: 0; gap: 6px; }
+    .window-body > * { max-width: 100%; min-width: 0; }
+    .window-body, .window-body ul, #settings-panel { scrollbar-width: none; -ms-overflow-style: none; }
+    .window-body::-webkit-scrollbar, .window-body ul::-webkit-scrollbar, #settings-panel::-webkit-scrollbar { width: 0; height: 0; }
+
+    body.edit-mode .window-header { cursor: move; background: rgba(128, 128, 128, 0.3); }
+    body.edit-mode .widget-window { border: 1px dashed rgba(128, 128, 128, 0.8); box-shadow: 0 0 15px rgba(255, 255, 255, 0.2); }
+
+    /* Resizers */
+    .resizer { display: none; position: absolute; z-index: 20; }
+    body.edit-mode .resizer { display: block; }
+    .resizer.r { top: 0; right: -4px; width: 8px; height: 100%; cursor: e-resize; }
+    .resizer.l { top: 0; left: -4px; width: 8px; height: 100%; cursor: w-resize; }
+    .resizer.b { bottom: -4px; left: 0; width: 100%; height: 8px; cursor: s-resize; }
+    .resizer.t { top: -4px; left: 0; width: 100%; height: 8px; cursor: n-resize; }
+    .resizer.rb { bottom: -6px; right: -6px; width: 12px; height: 12px; cursor: se-resize; }
+    .resizer.lb { bottom: -6px; left: -6px; width: 12px; height: 12px; cursor: sw-resize; }
+    .resizer.rt { top: -6px; right: -6px; width: 12px; height: 12px; cursor: ne-resize; }
+    .resizer.lt { top: -6px; left: -6px; width: 12px; height: 12px; cursor: nw-resize; }
+
+    /* Window Controls */
+    .header-controls { display: flex; align-items: center; gap: 6px; }
+    .win-opt-btn { background: rgba(128,128,128,0.2); border: 1px solid var(--glass-border); color: inherit; font-size: 0.75rem; border-radius: 4px; cursor: pointer; padding: 2px 6px; display: none; text-shadow: none; }
+    body.edit-mode .win-opt-btn { display: inline-block; }
+    .remove-btn { background: rgba(255, 50, 50, 0.8); border: none; color: white; border-radius: 50%; width: 18px; height: 18px; cursor: pointer; font-size: 11px; line-height: 18px; text-align: center; padding: 0; display: none; text-shadow: none; }
+    body.edit-mode .remove-btn { display: block; }
+
+    /* Forms & Inputs */
+    #search-form-el { width: 100%; height: 100%; margin: 0; display: flex; }
+    .search-body-override { padding: 4px !important; }
+    .search-input-wrapper { position: relative; width: 100%; }
+    .search-suggestion-list { position: absolute; left: 0; right: 0; top: calc(100% + 10px); max-height: 320px; overflow-y: auto; background: #fff; color: #202124; border: 1px solid rgba(0,0,0,0.12); border-radius: 18px; box-shadow: 0 18px 50px rgba(60,64,67,0.16); z-index: 999; list-style: none; padding: 6px 0; margin: 0; }
+    .search-suggestion-item { padding: 12px 16px; cursor: pointer; transition: background 0.18s ease; display: flex; align-items: center; gap: 12px; }
+    .search-suggestion-item.active { background: #f1f3f4; border-left: 4px solid #1a73e8; padding-left: 12px; }
+    .search-suggestion-item:hover { background: #f1f3f4; }
+    .search-suggestion-icon { width: 28px; height: 28px; min-width: 28px; display: grid; place-items: center; border-radius: 50%; background: rgba(232,234,237,0.92); color: #5f6368; font-size: 14px; }
+    .search-suggestion-content { display: flex; flex-direction: column; min-width: 0; }
+    .search-suggestion-title { font-size: 0.95rem; line-height: 1.3; }
+    .search-suggestion-subtitle { font-size: 0.8rem; color: #5f6368; line-height: 1.2; margin-top: 2px; }
+    .search-suggestion-text { font-weight: 400; }
+    .search-suggestion-completion { font-weight: 700; }
+    .search-input-wrapper .hidden { display: none !important; }
+    
+    input, textarea, select { background: rgba(128, 128, 128, 0.15); border: 1px solid var(--glass-border); color: inherit; font-family: inherit; outline: none; text-shadow: none; box-sizing: border-box; max-width: 100%; min-width: 0; }
+    body.theme-light input, body.theme-light textarea, body.theme-light select { background: rgba(0, 0, 0, 0.05); }
+
+    #search-input { width: 100%; height: 100%; padding: 10px 20px; border-radius: 25px; font-size: 1.1rem; box-sizing: border-box; }
+    textarea { width: 100%; flex-grow: 1; resize: none; padding: 6px; border-radius: 6px; min-height: 36px; }
+    input[type="text"]:not(#search-input) { width: 100%; padding: 6px; margin-bottom: 6px; border-radius: 6px; box-sizing: border-box; }
+    ul { list-style: none; padding: 0; margin: 0; overflow-y: auto; }
+    li { margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+
+    /* Bookmark Drag and Drop States */
+    li.bm-item { cursor: grab; padding: 2px 4px; border-radius: 4px; transition: background 0.2s; }
+    li.bm-item:active { cursor: grabbing; }
+    li.bm-item.dragging { opacity: 0.4; background: rgba(128, 128, 128, 0.2); }
+    li.bm-item.drag-over { background: rgba(128, 128, 128, 0.4); border-top: 1px dashed var(--glass-border); }
+
+    /* Control Bar */
+    .control-bar { position: fixed; bottom: 20px; right: 20px; display: flex; gap: 10px; z-index: 5000; transition: opacity 0.2s ease, transform 0.2s ease; }
+    .control-bar.auto-hide { opacity: 0; pointer-events: none; transform: translateY(8px); }
+    .control-bar.auto-hide.active-hover,
+    .control-bar.auto-hide:hover { opacity: 1; pointer-events: auto; transform: translateY(0); }
+    .control-bar.auto-hide .btn-ui { opacity: 0; transform: translateY(6px); transition: opacity 0.2s ease, transform 0.2s ease; }
+    .control-bar.auto-hide.active-hover .btn-ui,
+    .control-bar.auto-hide:hover .btn-ui { opacity: 1; transform: translateY(0); }
+    .btn-ui { padding: 10px 15px; background: rgba(128, 128, 128, 0.3); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid var(--glass-border); color: inherit; border-radius: 12px; cursor: pointer; font-weight: 500; text-shadow: none; transition: background 0.2s; }
+    .btn-ui:hover { background: rgba(128, 128, 128, 0.4); }
+    #custom-mode-btn.active { background: rgba(0, 200, 0, 0.4); border-color: rgba(0, 255, 0, 0.6); }
+
+    /* Side Panel */
+    #settings-panel { position: fixed; top: 0; right: -350px; bottom: 0; width: 320px; background: var(--modal-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-left: 1px solid var(--glass-border); z-index: 5001; padding: 20px; box-sizing: border-box; transition: right 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); text-shadow: none; overflow-y: auto; }
+    #settings-panel.open { right: 0; }
+    #settings-panel h3 { margin-top: 0; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px; }
+    .panel-section { margin-bottom: 20px; }
+    .toggle-row { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.9rem; align-items: center; }
+    .toggle-row input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+
+    /* Modal Engine for Adding Blocks */
+    #add-block-modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 6000; display: flex; justify-content: center; align-items: center; opacity: 1; transition: opacity 0.3s; }
+    #add-block-modal.hidden { opacity: 0; pointer-events: none; }
+    .modal-content { background: var(--modal-bg); border: 1px solid var(--glass-border); padding: 25px; border-radius: 16px; width: 340px; box-shadow: 0 15px 40px rgba(0,0,0,0.4); text-shadow: none; }
+    .modal-content h3 { margin-top: 0; margin-bottom: 20px; text-align: center; font-weight: 600; border-bottom: 1px solid var(--glass-border); padding-bottom: 10px; }
+    .module-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .mod-btn { padding: 12px; background: rgba(128,128,128,0.15); border: 1px solid var(--glass-border); color: inherit; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 500; transition: all 0.2s; display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .mod-btn:hover { background: rgba(128,128,128,0.35); transform: translateY(-2px); }
+
+    .hidden { display: none !important; }
+
+    /* Widget Specifics */
+    .clock-display { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 0; gap: 4px; overflow: auto; }
+    .clock-display h1 { font-size: clamp(0.95rem, 4vw, 2.6rem); margin: 0; font-weight: 300; text-align: center; line-height: 1.1; }
+    .clock-display p { margin: 0; text-align: center; opacity: 0.9; font-size: clamp(0.75rem, 2vw, 0.9rem); overflow-wrap: anywhere; }
+    .tz-string { font-size: 0.75rem !important; opacity: 0.6 !important; margin-top: 2px !important; }
+    .clock-mode-btn { position: absolute; top: 10px; right: 10px; font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: rgba(128,128,128,0.2); border: 1px solid var(--glass-border); color: inherit; cursor: pointer; }
+    
+    .analog-clock { width: min(110px, 100%); height: min(110px, 100%); border-radius: 50%; border: 2px solid currentColor; position: relative; display: flex; justify-content: center; align-items: center; margin: 0 auto; box-shadow: inset 0 0 10px rgba(0,0,0,0.1); flex-shrink: 0; }
+    .hand { position: absolute; bottom: 50%; transform-origin: bottom; background: currentColor; border-radius: 4px; }
+    .hour-hand { width: 4px; height: 35px; }
+    .minute-hand { width: 3px; height: 50px; opacity: 0.8; }
+    .second-hand { width: 2px; height: 55px; background: #ff4757 !important; }
+    .center-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; position: absolute; z-index: 5; }
+
+    .todo-header { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid var(--glass-border); padding-bottom: 4px; }
+    .todo-item { display: flex; align-items: center; gap: 8px; padding: 4px; background: rgba(128,128,128,0.1); border-radius: 4px; margin-bottom: 4px; }
+    .todo-item.completed span { text-decoration: line-through; opacity: 0.6; }
+    .todo-item span { flex-grow: 1; font-size: 0.9rem; word-break: break-word; overflow-wrap: anywhere; }
+    .todo-item button { background: none; border: none; color: #ff4757; cursor: pointer; font-weight: bold; padding: 0 4px; text-shadow: none; }
+
+    .ql-preset-select { width: 100%; padding: 6px 8px; margin-bottom: 10px; border-radius: 6px; font-size: 0.9rem; background: rgba(128,128,128,0.08); color: inherit; border: 1px solid var(--glass-border); }
+
+    /* Theme-aware select and option styling */
+    body.theme-dark .ql-preset-select,
+    body.theme-dark .ql-preset-select option {
+      background: rgba(20,20,20,var(--global-opacity));
+      color: var(--text-dark);
+      border-color: var(--glass-border-dark);
+    }
+
+    body.theme-light .ql-preset-select,
+    body.theme-light .ql-preset-select option {
+      background: rgba(255,255,255,var(--global-opacity));
+      color: var(--text-light);
+      border-color: var(--glass-border-light);
+    }
+
+    /* Improve native appearance across platforms */
+    .ql-preset-select { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+    .ql-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; flex-grow: 1; }
+    .ql-slot { background: rgba(128,128,128,0.15); border: 1px solid var(--glass-border); border-radius: 8px; display: flex; align-items: center; justify-content: center; text-align: center; text-decoration: none; color: inherit; font-size: 0.85rem; font-weight: 500; transition: background 0.2s; cursor: pointer; padding: 10px; }
+    .ql-slot:hover { background: rgba(128,128,128,0.3); }
+  </style>
+</head>
+<body class="theme-dark">
+
+  <video autoplay muted loop id="video-bg"><source id="video-src" src="assets/Testing.Assets.mov" type="video/mp4"></video>
+  <img id="img-bg" src="" alt="Background">
+
+  <div class="control-bar">
+    <button id="add-block-btn" class="btn-ui hidden">✚ Add Block</button>
+    <button id="custom-mode-btn" class="btn-ui">🛠</button>
+    <button id="settings-btn" class="btn-ui">⚙</button>
+  </div>
+
+  <div id="add-block-modal" class="hidden">
+    <div class="modal-content">
+      <h3>Select Module</h3>
+      <div class="module-grid">
+        <button class="mod-btn" data-type="clock"><span>🕰️</span> Clock</button>
+        <button class="mod-btn" data-type="notes"><span>📝</span> Notes</button>
+        <button class="mod-btn" data-type="todo"><span>✅</span> Tasks</button>
+        <button class="mod-btn" data-type="quicklinks"><span>🚀</span> Shortcuts</button>
+        <button class="mod-btn" data-type="bookmarks" style="grid-column: span 2;"><span>🔖</span> Bookmarks</button>
+      </div>
+      <button id="close-modal-btn" class="btn-ui" style="margin-top: 15px; width: 100%; background: rgba(255,50,50,0.3);">Cancel</button>
+    </div>
+  </div>
+
+  <div id="settings-panel">
+    <h3>System Console</h3>
+    <div class="panel-section">
+      <label>Theme:
+        <select id="theme-select" style="width:100%; margin-top:4px; padding:6px; border-radius:4px;">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </label>
+    </div>
+    <div class="panel-section">
+      <label>Global Transparency:
+        <input type="range" id="opacity-slider" min="0.05" max="0.95" step="0.05" value="0.4" style="width:100%; margin-top:4px;">
+      </label>
+    </div>
+    <div class="panel-section">
+      <label class="toggle-row" style="margin-bottom:0;">
+        <span>Auto-hide control buttons</span>
+        <input type="checkbox" id="auto-hide-controls-toggle">
+      </label>
+    </div>
+    <div class="panel-section">
+      <label>Background Asset (URL):
+        <input type="text" id="bg-video-input" placeholder="Direct link...">
+      </label>
+      <label style="display:block; margin-top: 10px; font-size:0.85rem;">Or Upload Local File:
+        <input type="file" id="bg-file-input" accept="video/*,image/*" style="width:100%; margin-top:4px;">
+      </label>
+    </div>
+    <div class="panel-section">
+      <label>Fade Duration (ms):
+        <input type="number" id="bg-fade-duration" min="100" max="5000" step="100" value="600" style="width:100%; margin-top:4px;">
+      </label>
+      <label style="display:block; margin-top: 10px; font-size:0.85rem;">Fade Density:
+        <input type="range" id="bg-fade-density" min="0.1" max="1" step="0.05" value="0.8" style="width:100%; margin-top:4px;">
+      </label>
+    </div>
+    <div class="panel-section">
+      <button id="save-settings" class="btn-ui" style="width: 100%;">Save Layout Parameters</button>
+    </div>
+    <h3>Widget Configuration Toggles</h3>
+    <div id="widget-toggles-list" class="panel-section"></div>
+    <div class="panel-section" style="margin-top: 40px;">
+      <button id="reset-widgets-btn" class="btn-ui" style="width: 100%; background: rgba(255,50,50,0.3);">Full Environment Reset</button>
+    </div>
+  </div>
+
+  <div class="workspace" id="workspace"></div>
+  <div id="selection-overlay"><div id="selection-box"></div></div>
+
+  <script>
+    let isEditMode = false;
+    let windowList = [];
+    const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const backgroundStorageKey = 'persisted-background';
+    let currentBackgroundObjectUrl = null;
+
+    const defaultSetup = [
+      { id: "win-search", type: "search", title: "Search Engine", left: "30%", top: "40px", width: "40%", height: "70px", hideTitle: true, isVisible: true },
+      { id: "win-clock", type: "clock", title: "System Time", left: "50px", top: "150px", width: "300px", height: "240px", hideTitle: false, isVisible: true },
+      { id: "win-notes", type: "notes", title: "Scratchpad Notes", left: "400px", top: "150px", width: "350px", height: "240px", hideTitle: false, isVisible: true },
+      { id: "win-todo", type: "todo", title: "Task Manager", left: "50px", top: "420px", width: "300px", height: "300px", hideTitle: false, isVisible: true },
+      { id: "win-ql", type: "quicklinks", title: "Launchpad", left: "400px", top: "420px", width: "350px", height: "300px", hideTitle: false, isVisible: true }
+    ];
+
+    document.addEventListener('DOMContentLoaded', () => {
+      loadEcosystem();
+      initSystemLoops();
+      setupGlobalControlActions();
+      initSelectionBox();
+    });
+
+    function applyControlBarVisibility() {
+      const bar = document.querySelector('.control-bar');
+      if (!bar) return;
+      const autoHide = localStorage.getItem('autoHideControlButtons') === 'true';
+      document.body.classList.toggle('controls-auto-hide', autoHide);
+      bar.classList.toggle('auto-hide', autoHide);
+      bar.classList.remove('active-hover');
+      if (!autoHide) {
+        bar.classList.remove('auto-hide');
+      }
+    }
+
+    function updateControlBarHoverState(event) {
+      const bar = document.querySelector('.control-bar');
+      if (!bar || !document.body.classList.contains('controls-auto-hide')) return;
+      const rect = bar.getBoundingClientRect();
+      const near = event.clientX >= rect.left - 90 && event.clientX <= rect.right + 90 && event.clientY >= rect.top - 90 && event.clientY <= rect.bottom + 90;
+      bar.classList.toggle('active-hover', near);
+    }
+
+    function revokeCurrentBackgroundObjectUrl() {
+      if (currentBackgroundObjectUrl) {
+        URL.revokeObjectURL(currentBackgroundObjectUrl);
+        currentBackgroundObjectUrl = null;
+      }
+    }
+
+    function openBackgroundStore() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('homepage4-bg-db', 1);
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+          if (!db.objectStoreNames.contains('backgrounds')) {
+            db.createObjectStore('backgrounds');
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function persistBackgroundAsset(file, assetType) {
+      if (!file) {
+        await clearPersistedBackgroundAsset();
+        return;
+      }
+
+      const db = await openBackgroundStore();
+      const payload = {
+        type: assetType,
+        name: file.name,
+        mimeType: file.type,
+        blob: file
+      };
+
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction('backgrounds', 'readwrite');
+        tx.objectStore('backgrounds').put(payload, backgroundStorageKey);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+
+      localStorage.setItem('cachedBgFileName', file.name);
+      localStorage.setItem('cachedBgType', assetType);
+      db.close();
+    }
+
+    async function clearPersistedBackgroundAsset() {
+      try {
+        const db = await openBackgroundStore();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('backgrounds', 'readwrite');
+          tx.objectStore('backgrounds').delete(backgroundStorageKey);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+        });
+        db.close();
+        localStorage.removeItem('cachedBgFileName');
+        localStorage.removeItem('cachedBgType');
+      } catch (error) {
+        console.warn('Unable to clear persisted background asset:', error);
+      }
+    }
+
+    async function restorePersistedBackgroundAsset() {
+      try {
+        const db = await openBackgroundStore();
+        const payload = await new Promise((resolve, reject) => {
+          const tx = db.transaction('backgrounds', 'readonly');
+          const request = tx.objectStore('backgrounds').get(backgroundStorageKey);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+        db.close();
+
+        if (!payload || !payload.blob) return null;
+        return {
+          objectUrl: URL.createObjectURL(payload.blob),
+          type: payload.type || (payload.mimeType?.startsWith('image/') ? 'image' : 'video')
+        };
+      } catch (error) {
+        console.warn('Unable to restore persisted background asset:', error);
+        return null;
+      }
+    }
+
+    async function loadEcosystem() {
+      const theme = localStorage.getItem('theme') || 'dark';
+      const videoUrl = localStorage.getItem('videoUrl');
+      const globalOpacity = localStorage.getItem('globalOpacity') || '0.4';
+
+      document.body.className = `theme-${theme}`;
+      document.getElementById('theme-select').value = theme;
+      if (videoUrl) document.getElementById('bg-video-input').value = videoUrl;
+      document.getElementById('opacity-slider').value = globalOpacity;
+      document.documentElement.style.setProperty('--global-opacity', globalOpacity);
+
+      const video = document.getElementById('video-bg');
+      const img = document.getElementById('img-bg');
+      const source = document.getElementById('video-src');
+      const sessionBlobUrl = sessionStorage.getItem('activeBgBlob');
+      const persistedBg = await restorePersistedBackgroundAsset();
+      const fadeDuration = Number(localStorage.getItem('bgFadeDuration') || '600');
+      const fadeDensity = Number(localStorage.getItem('bgFadeDensity') || '0.8');
+
+      revokeCurrentBackgroundObjectUrl();
+
+      document.getElementById('bg-fade-duration').value = fadeDuration;
+      document.getElementById('bg-fade-density').value = fadeDensity;
+      document.documentElement.style.setProperty('--bg-fade-duration', `${fadeDuration}ms`);
+      document.documentElement.style.setProperty('--bg-fade-density', fadeDensity.toString());
+
+      const hideElement = (element) => {
+        if (!element) return;
+        element.style.opacity = '0';
+        window.setTimeout(() => {
+          if (element.style.opacity === '0') element.style.display = 'none';
+        }, fadeDuration + 50);
+      };
+
+      const revealElement = (element) => {
+        element.style.opacity = '0';
+        element.style.display = 'block';
+        window.requestAnimationFrame(() => {
+          element.style.opacity = fadeDensity.toString();
+        });
+      };
+
+      const showImage = (url) => {
+        hideElement(video);
+        source.src = '';
+        img.style.opacity = '0';
+        if (!url) {
+          img.style.display = 'none';
+          img.src = '';
+          return;
+        }
+        img.onload = () => revealElement(img);
+        img.src = url;
+      };
+
+      const showVideo = (url) => {
+        hideElement(img);
+        img.src = '';
+        video.style.opacity = '0';
+        if (!url) {
+          video.style.display = 'none';
+          source.src = '';
+          return;
+        }
+        source.src = url;
+        video.load();
+        video.oncanplay = () => revealElement(video);
+        video.play().catch(()=>{});
+      };
+
+      if (persistedBg) {
+        revokeCurrentBackgroundObjectUrl();
+        currentBackgroundObjectUrl = persistedBg.objectUrl;
+        if (persistedBg.type === 'image') {
+          showImage(persistedBg.objectUrl);
+        } else {
+          showVideo(persistedBg.objectUrl);
+        }
+      } else if (sessionBlobUrl) {
+        if (sessionStorage.getItem('activeBgType') === 'image') {
+          showImage(sessionBlobUrl);
+        } else {
+          showVideo(sessionBlobUrl);
+        }
+      } else if (videoUrl) {
+        if(videoUrl.match(/\.(jpeg|jpg|gif|png|webp)$/i)) {
+          showImage(videoUrl);
+        } else {
+          showVideo(videoUrl);
+        }
+      } else {
+        showImage('');
+      }
+
+      const storedWindows = localStorage.getItem('window-list-setup');
+      windowList = storedWindows ? JSON.parse(storedWindows) : defaultSetup;
+      
+      const workspace = document.getElementById('workspace');
+      workspace.innerHTML = ''; 
+      windowList.forEach(winData => {
+        if(winData.isVisible === undefined) winData.isVisible = true; 
+        renderWindowToWorkspace(winData);
+      });
+      renderSidebarToggles();
+      applyControlBarVisibility();
+    }
+
+    function renderWindowToWorkspace(data) {
+      const workspace = document.getElementById('workspace');
+      const win = document.createElement('div');
+      win.className = `widget-window ${data.hideTitle ? 'hide-title' : ''}`;
+      win.id = data.id;
+      win.style.display = data.isVisible ? 'flex' : 'none';
+      
+      const alphaVal = localStorage.getItem('globalOpacity') || '0.4';
+      const isDark = document.body.classList.contains('theme-dark');
+      const baseBg = isDark ? `rgba(20,20,20,${alphaVal})` : `rgba(255,255,255,${alphaVal})`;
+      
+      win.style.cssText += `left: ${data.left}; top: ${data.top}; width: ${data.width}; height: ${data.height}; background: ${baseBg};`;
+
+      const header = document.createElement('div');
+      header.className = 'window-header';
+      header.innerHTML = `
+        <span class="window-title" id="title-text-${data.id}">${data.title}</span>
+        <div class="header-controls">
+          <button class="win-opt-btn" onclick="toggleTitleVisibility('${data.id}')">Tgl Title</button>
+          <button class="win-opt-btn" onclick="renameWindow('${data.id}')">Rename</button>
+          <button class="remove-btn" onclick="destroyWindow('${data.id}')">×</button>
+        </div>
+      `;
+      win.appendChild(header);
+
+      const body = document.createElement('div');
+      body.className = `window-body ${data.type === 'search' ? 'search-body-override' : ''}`;
+      
+      if(data.type === 'clock') {
+        const mode = localStorage.getItem('clock-mode-'+data.id) || 'digital';
+        body.innerHTML = `
+          <button class="clock-mode-btn"></></button>
+          <div class="clock-display">
+            <div class="digital-view ${mode === 'analog' ? 'hidden' : ''}">
+              <h1 class="t-val">00:00</h1>
+            </div>
+            <div class="analog-view ${mode === 'digital' ? 'hidden' : ''}">
+              <div class="analog-clock">
+                <div class="center-dot"></div>
+                <div class="hand hour-hand"></div>
+                <div class="hand minute-hand"></div>
+                <div class="hand second-hand"></div>
+              </div>
+            </div>
+            <p class="d-val">Date</p>
+            <p class="tz-string">${localTz}</p>
+          </div>
+        `;
+        body.querySelector('.clock-mode-btn').onclick = () => {
+          const isDig = body.querySelector('.digital-view').classList.contains('hidden');
+          const newMode = isDig ? 'digital' : 'analog';
+          localStorage.setItem('clock-mode-'+data.id, newMode);
+          body.querySelector('.digital-view').classList.toggle('hidden', newMode === 'analog');
+          body.querySelector('.analog-view').classList.toggle('hidden', newMode === 'digital');
+        };
+      } else if (data.type === 'notes') {
+        const txt = document.createElement('textarea');
+        txt.placeholder = 'Type local storage notes text here...';
+        txt.value = localStorage.getItem('note-content-' + data.id) || '';
+        txt.addEventListener('input', (e) => localStorage.setItem('note-content-' + data.id, e.target.value));
+        body.appendChild(txt);
+      } else if (data.type === 'bookmarks') {
+        body.innerHTML = `<input type="text" class="bm-t-in" placeholder="Label"><input type="text" class="bm-u-in" placeholder="URL Link (Enter Key)"><ul class="bm-render-list"></ul>`;
+      } else if (data.type === 'search') {
+        body.innerHTML = `<form id="search-form-el" action="https://www.google.com/search" method="get"><div class="search-input-wrapper"><input type="text" name="q" id="search-input" placeholder="Search Google or type a URL" autocomplete="off" spellcheck="false"><ul class="search-suggestion-list hidden"></ul></div></form>`;
+      } else if (data.type === 'todo') {
+        body.innerHTML = `<div class="todo-header"><span>Tasks: <span class="todo-counter">0/0</span></span></div><input type="text" class="todo-input" placeholder="Add task & press Enter..."><ul class="todo-list"></ul>`;
+        initTodoSubEngine(body, data.id);
+      } else if (data.type === 'quicklinks') {
+        body.innerHTML = `<select class="ql-preset-select"><option value="custom">Custom Configuration</option><option value="work">Preset: Work / Productivity</option><option value="web3">Preset: Web3 / Crypto</option></select><div class="ql-grid"></div>`;
+        initQuickLinksSubEngine(body, data.id);
+      }
+
+      win.appendChild(body);
+
+      ['r', 'l', 'b', 't', 'rb', 'lb', 'rt', 'lt'].forEach(ax => {
+        const rz = document.createElement('div');
+        rz.className = `resizer ${ax}`;
+        win.appendChild(rz);
+        setupResizeEvents(win, rz, ax);
+      });
+
+      workspace.appendChild(win);
+      setupDragEvents(win);
+      if (data.type === 'search') initSearchRecommendations(body);
+      // Ensure bookmark sub-engine is initialized after the window is in the DOM
+      if (data.type === 'bookmarks') initBookmarkSubEngine(body, data.id);
+    }
+
+    function toggleTitleVisibility(id) {
+      const match = windowList.find(w => w.id === id);
+      if(match) {
+        match.hideTitle = !match.hideTitle;
+        document.getElementById(id).classList.toggle('hide-title', match.hideTitle);
+        saveEcosystemLayoutState();
+      }
+    }
+
+    function renameWindow(id) {
+      const match = windowList.find(w => w.id === id);
+      if(match) {
+        const newTitle = prompt("Enter new title tag description:", match.title);
+        if(newTitle) {
+          match.title = newTitle;
+          document.getElementById(`title-text-${id}`).textContent = newTitle;
+          saveEcosystemLayoutState();
+          renderSidebarToggles();
+        }
+      }
+    }
+
+    function destroyWindow(id) {
+      windowList = windowList.filter(w => w.id !== id);
+      document.getElementById(id).remove();
+      saveEcosystemLayoutState();
+      renderSidebarToggles();
+    }
+
+    function renderSidebarToggles() {
+      const list = document.getElementById('widget-toggles-list');
+      list.innerHTML = '';
+      windowList.forEach(win => {
+        const row = document.createElement('div');
+        row.className = 'toggle-row';
+        row.innerHTML = `<span>${win.title}</span><input type="checkbox" ${win.isVisible ? 'checked' : ''}>`;
+        row.querySelector('input').addEventListener('change', (e) => {
+          win.isVisible = e.target.checked;
+          document.getElementById(win.id).style.display = win.isVisible ? 'flex' : 'none';
+          saveEcosystemLayoutState();
+        });
+        list.appendChild(row);
+      });
+    }
+
+    function setupDragEvents(win) {
+      const header = win.querySelector('.window-header');
+      let isDragging = false, startX, startY, startLeft, startTop;
+      header.addEventListener('mousedown', (e) => {
+        if (!isEditMode || e.target.classList.contains('win-opt-btn') || e.target.classList.contains('remove-btn')) return;
+        isDragging = true;
+        startX = e.clientX; startY = e.clientY;
+        startLeft = parseInt(window.getComputedStyle(win).left, 10);
+        startTop = parseInt(window.getComputedStyle(win).top, 10);
+        document.addEventListener('mousemove', dragMove);
+        document.addEventListener('mouseup', dragEnd);
+        e.preventDefault();
+      });
+      function dragMove(e) {
+        if (!isDragging) return;
+        win.style.left = (startLeft + (e.clientX - startX)) + 'px';
+        win.style.top = (startTop + (e.clientY - startY)) + 'px';
+      }
+      function dragEnd() {
+        isDragging = false;
+        document.removeEventListener('mousemove', dragMove);
+        document.removeEventListener('mouseup', dragEnd);
+        updateLocalWindowMatrixData(win);
+      }
+    }
+
+    function setupResizeEvents(win, handle, orientation) {
+      let startWidth, startHeight, startX, startY, startLeft, startTop;
+      handle.addEventListener('mousedown', (e) => {
+        if (!isEditMode) return;
+        e.stopPropagation();
+        startWidth = parseInt(window.getComputedStyle(win).width, 10);
+        startHeight = parseInt(window.getComputedStyle(win).height, 10);
+        startLeft = parseInt(window.getComputedStyle(win).left, 10);
+        startTop = parseInt(window.getComputedStyle(win).top, 10);
+        startX = e.clientX; startY = e.clientY;
+        document.addEventListener('mousemove', resizeMove);
+        document.addEventListener('mouseup', resizeEnd);
+        e.preventDefault();
+      });
+      function resizeMove(e) {
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+        if (orientation.includes('r')) win.style.width = Math.max(20, startWidth + deltaX) + 'px';
+        else if (orientation.includes('l')) {
+          const w = startWidth - deltaX;
+          win.style.width = Math.max(20, w) + 'px';
+          win.style.left = (startLeft + deltaX) + 'px';
+        }
+        if (orientation.includes('b')) win.style.height = Math.max(20, startHeight + deltaY) + 'px';
+        else if (orientation.includes('t')) {
+          const h = startHeight - deltaY;
+          win.style.height = Math.max(20, h) + 'px';
+          win.style.top = (startTop + deltaY) + 'px';
+        }
+      }
+      function resizeEnd() {
+        document.removeEventListener('mousemove', resizeMove);
+        document.removeEventListener('mouseup', resizeEnd);
+        updateLocalWindowMatrixData(win);
+      }
+    }
+
+    function updateLocalWindowMatrixData(win) {
+      const match = windowList.find(w => w.id === win.id);
+      if(match) {
+        match.left = win.style.left; match.top = win.style.top;
+        match.width = win.style.width; match.height = win.style.height;
+        saveEcosystemLayoutState();
+      }
+    }
+
+    function saveEcosystemLayoutState() {
+      localStorage.setItem('window-list-setup', JSON.stringify(windowList));
+    }
+
+    function initSelectionBox() {
+      const workspace = document.getElementById('workspace');
+      const overlay = document.getElementById('selection-overlay');
+      const box = document.getElementById('selection-box');
+      let isSelecting = false;
+      let startX = 0;
+      let startY = 0;
+
+      const updateSelection = (clientX, clientY) => {
+        const left = Math.min(clientX, startX);
+        const top = Math.min(clientY, startY);
+        const width = Math.abs(clientX - startX);
+        const height = Math.abs(clientY - startY);
+        box.style.left = `${left}px`;
+        box.style.top = `${top}px`;
+        box.style.width = `${width}px`;
+        box.style.height = `${height}px`;
+      };
+
+      workspace.addEventListener('mousedown', (event) => {
+        if (event.button !== 0) return;
+        if (event.target.closest('.widget-window, .btn-ui, input, textarea, select, button, label, .resizer')) return;
+        isSelecting = true;
+        startX = event.clientX;
+        startY = event.clientY;
+        box.style.display = 'block';
+        updateSelection(startX, startY);
+        document.body.classList.add('no-select');
+        event.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (event) => {
+        if (!isSelecting) return;
+        updateSelection(event.clientX, event.clientY);
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (!isSelecting) return;
+        isSelecting = false;
+        box.style.display = 'none';
+        document.body.classList.remove('no-select');
+      });
+    }
+
+    function initSearchRecommendations(body) {
+      const input = body.querySelector('#search-input');
+      let suggestionRoot = body.querySelector('.search-suggestion-list');
+      if (!suggestionRoot) {
+        suggestionRoot = document.createElement('ul');
+        suggestionRoot.className = 'search-suggestion-list hidden';
+        const wrapper = body.querySelector('.search-input-wrapper');
+        if (wrapper) wrapper.appendChild(suggestionRoot);
+      }
+
+      const suggestionItems = [
+        { type: 'prediction', text: 'free Google fonts', action: 'https://www.google.com/search?q=free+Google+fonts' },
+        { type: 'prediction', text: 'free online code editor', action: 'https://www.google.com/search?q=free+online+code+editor' },
+        { type: 'prediction', text: 'free stock photos', action: 'https://www.google.com/search?q=free+stock+photos' },
+        { type: 'history', text: 'freepik', action: 'https://www.google.com/search?q=freepik' },
+        { type: 'history', text: 'freelancer', action: 'https://www.google.com/search?q=freelancer' },
+        { type: 'history', text: 'freecodecamp', action: 'https://www.google.com/search?q=freecodecamp' },
+        { type: 'site', text: 'GitHub', subtitle: 'github.com', action: 'https://github.com' },
+        { type: 'site', text: 'YouTube', subtitle: 'youtube.com', action: 'https://www.youtube.com' },
+        { type: 'site', text: 'Stack Overflow', subtitle: 'stackoverflow.com', action: 'https://stackoverflow.com' }
+      ];
+
+      let selectedIndex = 0;
+      let currentItems = [];
+
+      const typeIcon = (type) => {
+        if (type === 'prediction') return '🔍';
+        if (type === 'history') return '🕒';
+        return '🌐';
+      };
+
+      const createTitleHTML = (text, query) => {
+        const lowerText = text.toLowerCase();
+        const lowerQuery = query.toLowerCase();
+        if (query && lowerText.startsWith(lowerQuery)) {
+          const prefix = text.slice(0, query.length);
+          const suffix = text.slice(query.length);
+          return `<span class="search-suggestion-text">${prefix}</span><span class="search-suggestion-completion">${suffix}</span>`;
+        }
+        return `<span class="search-suggestion-text">${text}</span>`;
+      };
+
+      const buildSuggestionItems = (value) => {
+        const typed = value.trim();
+        const normalized = typed.toLowerCase();
+
+        const urlSuggestion = typed && (/https?:\/\//i.test(typed) || /\./.test(typed))
+          ? [{ type: 'site', text: typed, subtitle: 'Open direct site', action: typed.startsWith('http') ? typed : 'https://' + typed }]
+          : [];
+
+        const filtered = suggestionItems.filter((item) => {
+          if (!typed) return item.type !== 'prediction';
+          return item.text.toLowerCase().includes(normalized) || (item.subtitle && item.subtitle.toLowerCase().includes(normalized));
+        });
+
+        return [...urlSuggestion, ...filtered].slice(0, 8);
+      };
+
+      const renderSuggestions = (items) => {
+        currentItems = items;
+        suggestionRoot.innerHTML = '';
+
+        if (!items.length) {
+          suggestionRoot.classList.add('hidden');
+          return;
+        }
+
+        items.forEach((item, index) => {
+          const li = document.createElement('li');
+          li.className = 'search-suggestion-item';
+          if (index === selectedIndex) li.classList.add('active');
+
+          li.innerHTML = `
+            <span class="search-suggestion-icon">${typeIcon(item.type)}</span>
+            <span class="search-suggestion-content">
+              <span class="search-suggestion-title">${createTitleHTML(item.text, input.value.trim())}</span>
+              <span class="search-suggestion-subtitle">${item.subtitle || (item.type === 'prediction' ? 'Search prediction' : 'Search history')}</span>
+            </span>
+          `;
+
+          li.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            selectedIndex = index;
+            chooseSuggestion();
+          });
+
+          suggestionRoot.appendChild(li);
+        });
+
+        suggestionRoot.classList.remove('hidden');
+      };
+
+      const chooseSuggestion = () => {
+        const item = currentItems[selectedIndex];
+        if (!item) return;
+        suggestionRoot.classList.add('hidden');
+        window.open(item.action, '_blank');
+      };
+
+      const updateSelection = () => {
+        suggestionRoot.querySelectorAll('.search-suggestion-item').forEach((item, idx) => {
+          item.classList.toggle('active', idx === selectedIndex);
+        });
+      };
+
+      const updateSuggestions = () => {
+        const items = buildSuggestionItems(input.value);
+        selectedIndex = items.length ? 0 : -1;
+        renderSuggestions(items);
+      };
+
+      const moveSelection = (direction) => {
+        if (!currentItems.length) return;
+        selectedIndex = Math.min(currentItems.length - 1, Math.max(0, selectedIndex + direction));
+        updateSelection();
+      };
+
+      input.addEventListener('input', updateSuggestions);
+      input.addEventListener('focus', updateSuggestions);
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          moveSelection(1);
+        } else if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          moveSelection(-1);
+        } else if (event.key === 'Enter' && selectedIndex >= 0) {
+          event.preventDefault();
+          chooseSuggestion();
+        }
+      });
+
+      input.addEventListener('blur', () => {
+        setTimeout(() => suggestionRoot.classList.add('hidden'), 150);
+      });
+
+      document.addEventListener('click', (event) => {
+        if (!body.contains(event.target)) {
+          suggestionRoot.classList.add('hidden');
+        }
+      });
+    }
+
+    function initBookmarkSubEngine(body, winId) {
+      const tIn = body.querySelector('.bm-t-in'), uIn = body.querySelector('.bm-u-in'), list = body.querySelector('.bm-render-list');
+      let bms = JSON.parse(localStorage.getItem('bms-data-' + winId)) || [{title:'Google', url:'https://google.com'}];
+      let draggedIdx = null;
+
+      const render = () => {
+        list.innerHTML = '';
+        bms.forEach((b, idx) => {
+          const li = document.createElement('li');
+          li.className = 'bm-item';
+          li.setAttribute('draggable', 'true');
+          
+          li.innerHTML = `<a href="${b.url}" target="_blank" style="color:inherit; text-decoration:none; flex-grow: 1;">🔗 ${b.title}</a>`;
+          
+          if(isEditMode) {
+            const del = document.createElement('button');
+            del.textContent = '-';
+            del.style.cssText = 'padding:1px 4px; background:rgba(255,0,0,0.4); border:none; color:white; border-radius:4px; cursor:pointer; text-shadow:none;';
+            del.onclick = () => { bms.splice(idx,1); localStorage.setItem('bms-data-'+winId, JSON.stringify(bms)); render(); };
+            li.appendChild(del);
+          }
+
+          li.addEventListener('dragstart', (e) => {
+            draggedIdx = idx;
+            e.dataTransfer.effectAllowed = 'move';
+            setTimeout(() => li.classList.add('dragging'), 0);
+          });
+
+          li.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            li.classList.add('drag-over');
+          });
+
+          li.addEventListener('dragleave', () => {
+            li.classList.remove('drag-over');
+          });
+
+          li.addEventListener('drop', (e) => {
+            e.preventDefault();
+            li.classList.remove('drag-over');
+            const targetIdx = idx;
+            
+            if (draggedIdx !== null && draggedIdx !== targetIdx) {
+              const draggedItem = bms.splice(draggedIdx, 1)[0];
+              bms.splice(targetIdx, 0, draggedItem);
+              localStorage.setItem('bms-data-' + winId, JSON.stringify(bms));
+              render();
+            }
+          });
+
+          li.addEventListener('dragend', () => {
+            li.classList.remove('dragging');
+            draggedIdx = null;
+          });
+
+          list.appendChild(li);
+        });
+      };
+      
+      render();
+
+      uIn.addEventListener('keypress', (e) => {
+        if(e.key === 'Enter' && uIn.value.trim() && tIn.value.trim()){
+          let url = uIn.value.trim();
+          if(!url.startsWith('http')) url = 'https://' + url;
+          bms.push({title: tIn.value.trim(), url});
+          localStorage.setItem('bms-data-' + winId, JSON.stringify(bms));
+          render(); tIn.value = ''; uIn.value = '';
+        }
+      });
+      body.parentElement.addEventListener('refresh-internal', render);
+    }
+
+    function initTodoSubEngine(body, winId) {
+      const input = body.querySelector('.todo-input'), list = body.querySelector('.todo-list'), counter = body.querySelector('.todo-counter');
+      let tasks = JSON.parse(localStorage.getItem('todo-data-' + winId)) || [];
+
+      const render = () => {
+        list.innerHTML = '';
+        let completed = 0;
+        tasks.forEach((t, idx) => {
+          if (t.done) completed++;
+          const li = document.createElement('li');
+          li.className = `todo-item ${t.done ? 'completed' : ''}`;
+          li.innerHTML = `<input type="checkbox" ${t.done ? 'checked' : ''}><span>${t.text}</span><button title="Delete Task">×</button>`;
+          li.querySelector('input').addEventListener('change', (e) => { tasks[idx].done = e.target.checked; saveAndRender(); });
+          li.querySelector('button').addEventListener('click', () => { tasks.splice(idx, 1); saveAndRender(); });
+          list.appendChild(li);
+        });
+        counter.textContent = `${completed}/${tasks.length}`;
+      };
+
+      const saveAndRender = () => { localStorage.setItem('todo-data-' + winId, JSON.stringify(tasks)); render(); };
+      input.addEventListener('keypress', (e) => {
+        if(e.key === 'Enter' && input.value.trim()) { tasks.push({ text: input.value.trim(), done: false }); input.value = ''; saveAndRender(); }
+      });
+      render();
+    }
+
+    function initQuickLinksSubEngine(body, winId) {
+      const select = body.querySelector('.ql-preset-select'), grid = body.querySelector('.ql-grid');
+      const presets = {
+        custom: [],
+        work: [{l: 'GitHub', u: 'https://github.com'}, {l: 'Notion', u: 'https://notion.so'}, {l: 'LinkedIn', u: 'https://linkedin.com'}, {l: 'Gmail', u: 'https://mail.google.com'}, {l: 'Slack', u: 'https://slack.com'}, {l: 'Figma', u: 'https://figma.com'}],
+        web3: [{l: 'DexScreener', u: 'https://dexscreener.com'}, {l: 'TradingView', u: 'https://tradingview.com'}, {l: 'Etherscan', u: 'https://etherscan.io'}, {l: 'CoinGecko', u: 'https://coingecko.com'}, {l: 'OpenSea', u: 'https://opensea.io'}, {l: 'Uniswap', u: 'https://app.uniswap.org'}]
+      };
+      
+      let links = JSON.parse(localStorage.getItem('ql-data-' + winId));
+      if (!links || links.length !== 6) links = Array(6).fill({l: 'Empty', u: '#'});
+
+      const render = () => {
+        grid.innerHTML = '';
+        links.forEach((lk, idx) => {
+          const el = document.createElement(lk.u === '#' ? 'div' : 'a');
+          el.className = 'ql-slot';
+          if(lk.u !== '#') { el.href = lk.u; el.target = '_blank'; }
+          el.textContent = lk.l;
+          el.addEventListener('click', (e) => {
+            if(isEditMode || lk.u === '#') {
+              e.preventDefault();
+              const newLabel = prompt("Enter Shortcut Label:", lk.l === 'Empty' ? '' : lk.l);
+              if(newLabel !== null) {
+                let newUrl = prompt("Enter URL:", lk.u === '#' ? '' : lk.u);
+                if(newUrl !== null) {
+                  if(newUrl && !newUrl.startsWith('http')) newUrl = 'https://' + newUrl;
+                  links[idx] = { l: newLabel || 'Empty', u: newUrl || '#' };
+                  select.value = 'custom';
+                  localStorage.setItem('ql-data-' + winId, JSON.stringify(links));
+                  render();
+                }
+              }
+            }
+          });
+          grid.appendChild(el);
+        });
+      };
+      select.addEventListener('change', (e) => {
+        if(e.target.value !== 'custom') { links = JSON.parse(JSON.stringify(presets[e.target.value])); localStorage.setItem('ql-data-' + winId, JSON.stringify(links)); render(); }
+      });
+      render();
+    }
+
+    function initSystemLoops() {
+      setInterval(() => {
+        const now = new Date();
+        const hr = now.getHours(), min = now.getMinutes(), sec = now.getSeconds();
+        
+        document.querySelectorAll('.clock-display').forEach(cd => {
+          const tVal = cd.querySelector('.t-val');
+          if (tVal) tVal.textContent = now.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+          const dVal = cd.querySelector('.d-val');
+          if (dVal) dVal.textContent = now.toLocaleDateString(undefined, {weekday: 'long', month: 'long', day: 'numeric'});
+          
+          const hHand = cd.querySelector('.hour-hand'), mHand = cd.querySelector('.minute-hand'), sHand = cd.querySelector('.second-hand');
+          if(hHand && mHand && sHand) {
+            sHand.style.transform = `rotate(${sec * 6}deg)`;
+            mHand.style.transform = `rotate(${min * 6 + (sec / 10)}deg)`;
+            hHand.style.transform = `rotate(${(hr % 12) * 30 + (min / 2)}deg)`;
+          }
+        });
+      }, 1000);
+    }
+
+    function setupGlobalControlActions() {
+      const customModeBtn = document.getElementById('custom-mode-btn');
+      const addBlockBtn = document.getElementById('add-block-btn');
+      const settingsBtn = document.getElementById('settings-btn');
+      const settingsPanel = document.getElementById('settings-panel');
+      const fileInput = document.getElementById('bg-file-input');
+      const autoHideToggle = document.getElementById('auto-hide-controls-toggle');
+      
+      const addBlockModal = document.getElementById('add-block-modal');
+      const closeModalBtn = document.getElementById('close-modal-btn');
+
+      applyControlBarVisibility();
+      document.addEventListener('mousemove', updateControlBarHoverState);
+      autoHideToggle.checked = localStorage.getItem('autoHideControlButtons') === 'true';
+      autoHideToggle.addEventListener('change', () => {
+        localStorage.setItem('autoHideControlButtons', autoHideToggle.checked ? 'true' : 'false');
+        applyControlBarVisibility();
+      });
+
+      customModeBtn.addEventListener('click', () => {
+        isEditMode = !isEditMode;
+        document.body.classList.toggle('edit-mode', isEditMode);
+        customModeBtn.classList.toggle('active', isEditMode);
+        addBlockBtn.classList.toggle('hidden', !isEditMode);
+        document.querySelectorAll('.widget-window').forEach(win => {
+          win.setAttribute('draggable', isEditMode ? 'true' : 'false');
+          win.dispatchEvent(new Event('refresh-internal'));
+        });
+      });
+
+      // Show Custom Modal
+      addBlockBtn.addEventListener('click', () => addBlockModal.classList.remove('hidden'));
+      
+      // Hide Custom Modal
+      closeModalBtn.addEventListener('click', () => addBlockModal.classList.add('hidden'));
+
+      // Spawn Block from Modal
+      document.querySelectorAll('.mod-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const type = e.currentTarget.getAttribute('data-type');
+          const id = 'win-spawn-' + Date.now();
+          const newBlock = { id, type, title: type.toUpperCase() + ' Node', left: '100px', top: '150px', width: '300px', height: '240px', hideTitle: false, isVisible: true };
+          windowList.push(newBlock);
+          renderWindowToWorkspace(newBlock);
+          saveEcosystemLayoutState();
+          renderSidebarToggles();
+          addBlockModal.classList.add('hidden');
+        });
+      });
+
+      settingsBtn.addEventListener('click', () => {
+        settingsPanel.classList.toggle('open');
+        if (document.body.classList.contains('controls-auto-hide')) {
+          document.querySelector('.control-bar').classList.add('active-hover');
+        }
+      });
+
+      fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if(!file) return;
+
+        const assetType = file.type.startsWith('image/') ? 'image' : 'video';
+        revokeCurrentBackgroundObjectUrl();
+
+        const fileUrl = URL.createObjectURL(file);
+        currentBackgroundObjectUrl = fileUrl;
+        sessionStorage.setItem('activeBgBlob', fileUrl);
+        sessionStorage.setItem('activeBgType', assetType);
+        document.getElementById('bg-video-input').value = '';
+
+        await persistBackgroundAsset(file, assetType);
+        await loadEcosystem();
+      });
+
+      document.getElementById('save-settings').addEventListener('click', async () => {
+        localStorage.setItem('theme', document.getElementById('theme-select').value);
+        const txtUrl = document.getElementById('bg-video-input').value.trim();
+        revokeCurrentBackgroundObjectUrl();
+        currentBackgroundObjectUrl = null;
+        if(txtUrl) {
+          localStorage.setItem('videoUrl', txtUrl);
+          await clearPersistedBackgroundAsset();
+          sessionStorage.removeItem('activeBgBlob');
+          sessionStorage.removeItem('activeBgType');
+        } else if (!sessionStorage.getItem('activeBgBlob')) {
+          localStorage.removeItem('videoUrl');
+        }
+        localStorage.setItem('globalOpacity', document.getElementById('opacity-slider').value);
+        localStorage.setItem('bgFadeDuration', document.getElementById('bg-fade-duration').value);
+        localStorage.setItem('bgFadeDensity', document.getElementById('bg-fade-density').value);
+        await loadEcosystem();
+        applyControlBarVisibility();
+        settingsPanel.classList.remove('open');
+      });
+
+      document.getElementById('reset-widgets-btn').addEventListener('click', () => {
+        if(confirm("Wipe entire workspace?")) {
+          revokeCurrentBackgroundObjectUrl();
+          localStorage.clear();
+          sessionStorage.clear();
+          location.reload();
+        }
+      });
+    }
+  </script>
+</body>
+</html>
